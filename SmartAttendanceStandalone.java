@@ -3,122 +3,140 @@ import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.sql.*;
 
-public class SmartAttendanceStandalone extends JFrame {
-    private JTable table;
-    private DefaultTableModel model;
+public class SmartAttendanceSystem extends JFrame {
+    private JTextField rollNoField, emailField;
+    private JPasswordField passwordField;
+    private JButton loginButton, markButton, viewButton;
+    private JTable attendanceTable;
+    private int loggedRollNo = -1;
 
-    public SmartAttendanceStandalone() {
-        setTitle("Smart Attendance System - Student Info");
-        setSize(700, 500);
-        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setLocationRelativeTo(null);
+    public SmartAttendanceSystem() {
+        setTitle("Smart Attendance System");
+        setDefaultCloseOperation(EXIT_ON_CLOSE);
+        setLayout(new FlowLayout());
+        setSize(550, 450);
 
-        // Layout
-        setLayout(new BorderLayout());
+        JLabel title = new JLabel("SMART ATTENDANCE SYSTEM");
+        title.setFont(new Font("Arial", Font.BOLD, 16));
+        add(title);
 
-        // Buttons
-        JPanel buttonPanel = new JPanel();
-        JButton showButton = new JButton("Show All Students");
-        JButton addButton = new JButton("Add Student");
-        JButton deleteButton = new JButton("Delete Student");
+        add(new JLabel("Roll No:"));
+        rollNoField = new JTextField(5);
+        add(rollNoField);
 
-        buttonPanel.add(showButton);
-        buttonPanel.add(addButton);
-        buttonPanel.add(deleteButton);
+        add(new JLabel("Email:"));
+        emailField = new JTextField(20);
+        add(emailField);
 
-        add(buttonPanel, BorderLayout.NORTH);
+        add(new JLabel("Password:"));
+        passwordField = new JPasswordField(20);
+        add(passwordField);
 
-        // Table
-        model = new DefaultTableModel(new String[]{"Roll_No", "Student_Name", "Gmail", "Password"}, 0);
-        table = new JTable(model);
-        add(new JScrollPane(table), BorderLayout.CENTER);
+        loginButton = new JButton("Login");
+        markButton = new JButton("Mark Attendance");
+        viewButton = new JButton("View Attendance");
 
-        // Button Actions
-        showButton.addActionListener(e -> refreshReport());
-        addButton.addActionListener(e -> addStudent());
-        deleteButton.addActionListener(e -> deleteStudent());
+        add(loginButton);
+        add(markButton);
+        add(viewButton);
+
+        markButton.setEnabled(false);
+        viewButton.setEnabled(false);
+
+        loginButton.addActionListener(e -> login());
+        markButton.addActionListener(e -> markAttendance());
+        viewButton.addActionListener(e -> viewAttendance());
+
+        attendanceTable = new JTable();
+        add(new JScrollPane(attendanceTable));
+
+        setVisible(true);
     }
 
-    private void refreshReport() {
-        try {
-            Connection conn = DBConnection.getConnection();
-            Statement st = conn.createStatement();
-            ResultSet rs = st.executeQuery("SELECT Roll_No, Student_Name, Gmail, Password FROM Student");
+    // LOGIN 
+    private void login() {
+        String gmail = emailField.getText();
+        String pass = new String(passwordField.getPassword());
+        String rollText = rollNoField.getText();
 
-            // Clear table
-            model.setRowCount(0);
+        if (rollText.isEmpty() || gmail.isEmpty() || pass.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Please fill Roll No, Email, and Password!");
+            return;
+        }
+
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement pst = conn.prepareStatement("SELECT * FROM Student WHERE Roll_No=? AND Gmail=? AND Password=?")) {
+
+            pst.setInt(1, Integer.parseInt(rollText));
+            pst.setString(2, gmail);
+            pst.setString(3, pass);
+            ResultSet rs = pst.executeQuery();
+
+            if (rs.next()) {
+                loggedRollNo = rs.getInt("Roll_No");
+                JOptionPane.showMessageDialog(this, "Login successful!");
+                markButton.setEnabled(true);
+                viewButton.setEnabled(true);
+            } else {
+                JOptionPane.showMessageDialog(this, "Invalid Roll No, Email, or Password!");
+            }
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Error during login: " + ex.getMessage());
+            ex.printStackTrace();
+        }
+    }
+
+    //  MARK ATTENDANCE
+    private void markAttendance() {
+        if (loggedRollNo == -1) {
+            JOptionPane.showMessageDialog(this, "Please login first!");
+            return;
+        }
+
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement pst = conn.prepareStatement("INSERT INTO Attendance (Roll_No, Status) VALUES (?, 'Present')")) {
+            pst.setInt(1, loggedRollNo);
+            pst.executeUpdate();
+            JOptionPane.showMessageDialog(this, "Attendance marked successfully!");
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Error marking attendance: " + ex.getMessage());
+            ex.printStackTrace();
+        }
+    }
+
+    //  VIEW ATTENDANCE 
+    private void viewAttendance() {
+        if (loggedRollNo == -1) {
+            JOptionPane.showMessageDialog(this, "Please login first!");
+            return;
+        }
+
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement pst = conn.prepareStatement("SELECT * FROM Attendance WHERE Roll_No=?")) {
+            pst.setInt(1, loggedRollNo);
+            ResultSet rs = pst.executeQuery();
+
+            String[] columns = {"Attendance_ID", "Roll_No", "Date", "Status"};
+            DefaultTableModel model = new DefaultTableModel(columns, 0);
 
             while (rs.next()) {
-                int roll = rs.getInt("Roll_No");
-                String name = rs.getString("Student_Name");
-                String gmail = rs.getString("Gmail");
-                String password = rs.getString("Password");
-
-                model.addRow(new Object[]{roll, name, gmail, password});
-            }
-        } catch (Exception ex) {
-            ex.printStackTrace();
-            JOptionPane.showMessageDialog(this, "Error fetching data: " + ex.getMessage());
-        }
-    }
-
-    private void addStudent() {
-        try {
-            String roll = JOptionPane.showInputDialog(this, "Enter Roll No:");
-            String name = JOptionPane.showInputDialog(this, "Enter Student Name:");
-            String gmail = JOptionPane.showInputDialog(this, "Enter Gmail:");
-            String password = JOptionPane.showInputDialog(this, "Enter Password:");
-
-            if (roll == null || name == null || gmail == null || password == null ||
-                roll.isEmpty() || name.isEmpty() || gmail.isEmpty() || password.isEmpty()) {
-                JOptionPane.showMessageDialog(this, "All fields are required!");
-                return;
+                Object[] row = {
+                    rs.getInt("Attendance_ID"),
+                    rs.getInt("Roll_No"),
+                    rs.getDate("Date"),
+                    rs.getString("Status")
+                };
+                model.addRow(row);
             }
 
-            Connection conn = DBConnection.getConnection();
-            String query = "INSERT INTO Student (Roll_No, Student_Name, Gmail, Password) VALUES (?, ?, ?, ?)";
-            PreparedStatement pst = conn.prepareStatement(query);
-            pst.setInt(1, Integer.parseInt(roll));
-            pst.setString(2, name);
-            pst.setString(3, gmail);
-            pst.setString(4, password);
-            pst.executeUpdate();
-
-            JOptionPane.showMessageDialog(this, " Student added successfully!");
-            refreshReport();
+            attendanceTable.setModel(model);
         } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Error loading attendance: " + ex.getMessage());
             ex.printStackTrace();
-            JOptionPane.showMessageDialog(this, "Error adding student: " + ex.getMessage());
-        }
-    }
-
-    private void deleteStudent() {
-        try {
-            String roll = JOptionPane.showInputDialog(this, "Enter Roll No to Delete:");
-            if (roll == null || roll.isEmpty()) {
-                JOptionPane.showMessageDialog(this, "Roll No required!");
-                return;
-            }
-
-            Connection conn = DBConnection.getConnection();
-            String query = "DELETE FROM Student WHERE Roll_No = ?";
-            PreparedStatement pst = conn.prepareStatement(query);
-            pst.setInt(1, Integer.parseInt(roll));
-
-            int rows = pst.executeUpdate();
-            if (rows > 0)
-                JOptionPane.showMessageDialog(this, " Student deleted successfully!");
-            else
-                JOptionPane.showMessageDialog(this, "No student found with Roll No: " + roll);
-
-            refreshReport();
-        } catch (Exception ex) {
-            ex.printStackTrace();
-            JOptionPane.showMessageDialog(this, "Error deleting student: " + ex.getMessage());
         }
     }
 
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> new SmartAttendanceStandalone().setVisible(true));
+        new SmartAttendanceSystem();
     }
 }
